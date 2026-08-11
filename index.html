@@ -83,11 +83,20 @@ svg text{fill:var(--text-secondary)}
 <body>
 <header>
   <div class="brand">
-    <div>
-      <h1>Dashboard Monitoring Principal Suretyship</h1>
-      <div class="sub">PT Asuransi Kredit Indonesia (Askrindo) — Divisi Subrogasi</div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <img src="https://raw.githubusercontent.com/yanuarsyah/iyee/main/WhatsApp_Image_2026-07-23_at_16.53.50-removebg-preview.png"
+           alt="Logo Askrindo" style="height:46px;width:auto;background:#fff;border-radius:8px;padding:5px 8px;box-shadow:0 1px 4px rgba(0,0,0,.2)"
+           onerror="this.style.display='none'">
+      <div>
+        <h1>Dashboard Monitoring Principal Suretyship</h1>
+        <div class="sub">PT Asuransi Kredit Indonesia (Askrindo) — Divisi Subrogasi / Recovery</div>
+      </div>
     </div>
-    <div style="display:flex;gap:10px;align-items:center">
+    <div style="display:flex;gap:16px;align-items:center">
+      <div style="text-align:right;line-height:1.15;color:#fff;min-width:150px">
+        <div id="clockDate" style="font-size:12.5px;opacity:.85">&nbsp;</div>
+        <div id="clockTime" style="font-size:22px;font-weight:800;letter-spacing:.5px">&nbsp;</div>
+      </div>
       <span class="badge" id="dataInfo">memuat…</span>
       <button id="themeBtn" title="Mode gelap/terang">🌙</button>
     </div>
@@ -267,7 +276,6 @@ function applyFilters(){
     if(st==="NPL"&&r.status_pl!=="NPL")return false;
     if(st==="flag"&&!r.flag_risiko)return false;
     const sub=$("#fSubrogasi").value; if(sub&&r.status_subrogasi!==sub)return false;
-    if(q){const hay=(r.nama_debitur+" "+r.cabang+" "+r.no_polis+" "+r.obligee).toLowerCase(); if(hay.indexOf(q)<0)return false;}
     return true;
   });
 }
@@ -434,35 +442,61 @@ function renderTables(){
      <td>${flagChips(r.flag_risiko)}</td><td>${r.tahap||''}</td><td>${r.pic||''}</td></tr>`).join("");
   if(!flagged.length)h+=`<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:18px">Tidak ada baris ber-flag pada filter ini 🎉</td></tr>`;
   $("#tblFlag").innerHTML=h+"</tbody>";
+  renderDetail();
+}
 
+function renderDetail(){
+  const d=FILTERED;
   const subTag=s=>{const c=s==="Non Potensial"?"--critical":"--good";
     return `<span class="tag" style="background:${cssv(c)}22;color:${cssv(c)}">${s||''}</span>`;};
-  let t=`<thead><tr><th>Principal</th><th>Cabang</th><th>RO</th><th>COB</th><th>Kol</th>
+  const q=($("#search").value||"").trim().toLowerCase();
+  const cab=$("#fCabang").value;
+  const head=`<thead><tr><th>Principal</th><th>Cabang</th><th>RO</th><th>COB</th><th>Kol</th>
      <th class="num">Piutang Awal</th><th class="num">Outstanding</th><th class="num">RR</th>
-     <th>Aging</th><th>Status Principal</th><th>Status Penagih</th><th>Status Subrogasi</th></tr></thead><tbody>`;
-  t+=d.slice(0,400).map(r=>`<tr>
+     <th>Aging</th><th>Status Principal</th><th>Status Penagih</th><th>Status Subrogasi</th></tr></thead>`;
+  // Detail hanya tampil bila Kantor Cabang dipilih ATAU sedang mencari (hindari tarik data nasional/RO yang berat)
+  if(!cab && q.length<2){
+    $("#tblDetail").innerHTML=head+`<tbody><tr><td colspan="12" style="text-align:center;color:var(--muted);padding:26px">
+      🔎 Pilih <b>Kantor Cabang</b> pada filter di atas, atau ketik minimal 2 huruf pada kotak pencarian, untuk menampilkan detail.</td></tr></tbody>`;
+    $("#detCount").textContent="Detail tampil saat Kantor Cabang dipilih atau saat pencarian (menghindari tarik data berat).";
+    return;
+  }
+  let hits=d;
+  if(q.length>=2) hits=d.filter(r=>((r.nama_debitur+" "+r.cabang+" "+r.no_polis+" "+r.obligee).toLowerCase().indexOf(q)>=0));
+  let t=head+"<tbody>";
+  t+=hits.slice(0,300).map(r=>`<tr>
      <td>${r.nama_debitur}</td><td>${r.cabang}</td><td>${trunc(r.regional,18)}</td><td>${r.cob}</td>
      <td><span class="tag" style="background:${cssv(KOL_COLOR(r.kol_kini))}22;color:${cssv(KOL_COLOR(r.kol_kini))}">${r.kol_kini}</span></td>
      <td class="num">${rp(r.piutang_awal)}</td><td class="num">${rp(r.outstanding)}</td>
      <td class="num">${pct(r.recovery_rate)}</td><td>${r.aging||''}</td>
      <td>${trunc(r.status_principal,22)}</td><td>${r.status_penagih||''}</td><td>${subTag(r.status_subrogasi)}</td></tr>`).join("");
+  if(!hits.length)t+=`<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:22px">Tidak ada data untuk kriteria ini.</td></tr>`;
   $("#tblDetail").innerHTML=t+"</tbody>";
-  $("#detCount").textContent=d.length+" principal ditampilkan"+(d.length>400?" (400 pertama)":"");
+  const ket = q.length>=2 ? `hasil untuk "${q}"` : `principal di ${cab}`;
+  $("#detCount").textContent=hits.length+" "+ket+(hits.length>300?" (300 pertama)":"");
 }
+
+/* ---------- jam & tanggal live (WIB) ---------- */
+const _dfmt=new Intl.DateTimeFormat('id-ID',{timeZone:'Asia/Jakarta',weekday:'long',day:'numeric',month:'short',year:'numeric'});
+const _tfmt=new Intl.DateTimeFormat('id-ID',{timeZone:'Asia/Jakarta',hour:'2-digit',minute:'2-digit',hour12:false});
+function tickClock(){const n=new Date();
+  const cd=$("#clockDate"),ct=$("#clockTime");
+  if(cd)cd.textContent=_dfmt.format(n);
+  if(ct)ct.textContent=_tfmt.format(n).replace(':','.')+" WIB";}
 
 /* ---------- orchestrate ---------- */
 function renderAll(){ applyFilters(); renderKPI(); renderCharts(); renderTables(); }
 function init(){
   $("#fRegional").onchange=()=>{refreshCabang();renderAll();};
   ["#fCabang","#fCob","#fStatus","#fSubrogasi"].forEach(s=>$(s).onchange=renderAll);
-  $("#search").oninput=renderTables;
+  $("#search").oninput=renderDetail;
   $("#reloadBtn").onclick=async()=>{await loadData();fillFilters();renderAll();};
   $("#themeBtn").onclick=()=>{const r=document.documentElement;
     r.dataset.theme=r.dataset.theme==="dark"?"light":"dark";
     $("#themeBtn").textContent=r.dataset.theme==="dark"?"☀️":"🌙"; renderAll();};
   window.addEventListener("resize",()=>{renderCharts();});
 }
-(async function(){ init(); await loadData(); fillFilters(); renderAll(); })();
+(async function(){ init(); tickClock(); setInterval(tickClock,1000); await loadData(); fillFilters(); renderAll(); })();
 </script>
 </body>
 </html>
